@@ -1,124 +1,283 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Map, SlidersHorizontal, MapPin } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { SlidersHorizontal, Navigation, MapPin } from 'lucide-react';
 import TechnicianCard from '../components/search/TechnicianCard';
 import FlashBudgetModal from '../components/search/FlashBudgetModal';
 
+// ─── Haversine distance (km) ───────────────────────────────────────────────
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// ─── Custom map icons (DivIcon — avoids Vite bundling issues) ─────────────
+const createTechIcon = (highlight = false) =>
+  L.divIcon({
+    className: '',
+    html: `<div style="
+      width:${highlight ? 40 : 32}px;
+      height:${highlight ? 40 : 32}px;
+      background:${highlight ? '#1d4ed8' : '#3b82f6'};
+      border-radius:50% 50% 50% 0;
+      transform:rotate(-45deg);
+      border:3px solid white;
+      box-shadow:0 3px 10px rgba(0,0,0,0.35);
+      transition:all .2s;
+    "></div>`,
+    iconSize: [highlight ? 40 : 32, highlight ? 40 : 32],
+    iconAnchor: [highlight ? 20 : 16, highlight ? 40 : 32],
+    popupAnchor: [0, -36],
+  });
+
+const userPinIcon = L.divIcon({
+  className: '',
+  html: `<div style="
+    width:20px; height:20px;
+    background:#22c55e;
+    border-radius:50%;
+    border:3px solid white;
+    box-shadow:0 0 0 5px rgba(34,197,94,0.25);
+  "></div>`,
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+});
+
+// ─── Flies to new center smoothly ─────────────────────────────────────────
+const MapFlyTo = ({ center, zoom }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (center) map.flyTo(center, zoom, { duration: 1.4 });
+  }, [center, zoom, map]);
+  return null;
+};
+
+// ─── Constants ────────────────────────────────────────────────────────────
+const VENEZUELA_CENTER = [8.0, -66.0];
+const VENEZUELA_ZOOM = 6;
+const SEARCH_RADIUS_KM = 50;
+
+// ─── Component ────────────────────────────────────────────────────────────
 const SearchResults = () => {
   const location = useLocation();
-  const searchParams = new URLSearchParams(location.search);
-  const serviceQuery = searchParams.get('service') || 'Reparaciones';
-  
-  const [selectedTech, setSelectedTech] = useState(null);
-  const [technicians, setTechnicians] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const params = new URLSearchParams(location.search);
+  const serviceQuery = params.get('service') || 'Reparaciones';
+  const locationQuery = params.get('location') || '';
 
+  const [selectedTech, setSelectedTech] = useState(null);
+  const [allTechnicians, setAllTechnicians] = useState([]);
+  const [visibleTechs, setVisibleTechs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState('');
+  const [userLocation, setUserLocation] = useState(null);
+  const [mapCenter, setMapCenter] = useState(VENEZUELA_CENTER);
+  const [mapZoom, setMapZoom] = useState(VENEZUELA_ZOOM);
+
+  // Fetch technicians once
   useEffect(() => {
-    const fetchTechnicians = async () => {
+    (async () => {
       try {
         const res = await fetch('http://localhost:5000/api/technicians');
         const data = await res.json();
         if (res.ok) {
-          setTechnicians(data);
+          setAllTechnicians(data);
+          setVisibleTechs(data.filter((t) => t.lat && t.lng));
         }
       } catch (err) {
-        console.error("Error al obtener técnicos:", err);
+        console.error('Error al obtener técnicos:', err);
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchTechnicians();
+    })();
   }, []);
+
+  // Geocode + filter when location query or technicians change
+  useEffect(() => {
+    if (!locationQuery || allTechnicians.length === 0) {
+      setVisibleTechs(allTechnicians.filter((t) => t.lat && t.lng));
+      setUserLocation(null);
+      setMapCenter(VENEZUELA_CENTER);
+      setMapZoom(VENEZUELA_ZOOM);
+      setGeocodeError('');
+      return;
+    }
+
+    (async () => {
+      setGeocoding(true);
+      setGeocodeError('');
+      try {
+        const query = encodeURIComponent(`${locationQuery}, Venezuela`);
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1&countrycodes=ve`,
+          { headers: { 'Accept-Language': 'es' } }
+        );
+        const data = await res.json();
+
+        if (data.length === 0) {
+          setGeocodeError(`No se encontró "${locationQuery}" en Venezuela.`);
+          setVisibleTechs(allTechnicians.filter((t) => t.lat && t.lng));
+          return;
+        }
+
+        const uLat = parseFloat(data[0].lat);
+        const uLng = parseFloat(data[0].lon);
+        setUserLocation({ lat: uLat, lng: uLng });
+        setMapCenter([uLat, uLng]);
+        setMapZoom(12);
+
+        const nearby = allTechnicians
+          .filter((t) => t.lat && t.lng)
+          .map((t) => ({
+            ...t,
+            distanceKm: haversineDistance(uLat, uLng, t.lat, t.lng),
+          }))
+          .filter((t) => t.distanceKm <= SEARCH_RADIUS_KM)
+          .sort((a, b) => a.distanceKm - b.distanceKm)
+          .map((t) => ({ ...t, distance: `A ${t.distanceKm.toFixed(1)} km` }));
+
+        setVisibleTechs(nearby);
+      } catch {
+        setGeocodeError('Error al buscar la ubicación. Intenta de nuevo.');
+      } finally {
+        setGeocoding(false);
+      }
+    })();
+  }, [locationQuery, allTechnicians]);
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)]">
-      {/* Left List Pane */}
-      <div className="w-full md:w-1/2 lg:w-2/5 flex flex-col bg-white border-r border-gray-200 z-10 shadow-sm overflow-hidden">
+      {/* ── Left list pane ── */}
+      <div className="w-full md:w-2/5 flex flex-col bg-white border-r border-gray-200 shadow-sm overflow-hidden z-10">
         <div className="p-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900">Resultados para "{serviceQuery}"</h1>
-          <p className="text-sm text-gray-500 mt-1">{technicians.length} técnicos disponibles cerca de ti</p>
-          
-          <div className="flex gap-2 mt-4">
+          <h1 className="text-xl font-bold text-gray-900">
+            Resultados para &ldquo;{serviceQuery}&rdquo;
+          </h1>
+
+          {geocoding ? (
+            <p className="text-sm text-blue-500 mt-1 animate-pulse">🔍 Buscando ubicación...</p>
+          ) : geocodeError ? (
+            <p className="text-sm text-red-500 mt-1">{geocodeError}</p>
+          ) : userLocation ? (
+            <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+              <Navigation size={12} className="text-green-500" />
+              {visibleTechs.length} técnico(s) en un radio de {SEARCH_RADIUS_KM} km
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500 mt-1">
+              {visibleTechs.length} técnico(s) disponibles en plataforma
+            </p>
+          )}
+
+          <div className="mt-3">
             <button className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">
               <SlidersHorizontal size={16} /> Filtros
             </button>
-            <button className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 md:hidden">
-              <Map size={16} /> Ver Mapa
-            </button>
           </div>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
           {loading ? (
-            <div className="text-center py-10 text-gray-500">Cargando técnicos...</div>
-          ) : technicians.length > 0 ? (
-            technicians.map(tech => (
-              <TechnicianCard 
-                key={tech.id} 
-                tech={tech} 
-                onQuoteClick={(t) => setSelectedTech(t)} 
+            <div className="text-center py-10 text-gray-400 animate-pulse">
+              Cargando técnicos...
+            </div>
+          ) : visibleTechs.length > 0 ? (
+            visibleTechs.map((tech) => (
+              <TechnicianCard
+                key={tech.id}
+                tech={tech}
+                onQuoteClick={(t) => setSelectedTech(t)}
               />
             ))
           ) : (
-            <div className="text-center py-10 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <h3 className="font-bold text-gray-900 mb-1">No hay técnicos disponibles</h3>
-              <p className="text-sm text-gray-500">Aún no se han registrado técnicos en la plataforma.</p>
+            <div className="text-center py-10 bg-white border border-dashed border-gray-200 rounded-xl">
+              <MapPin className="mx-auto text-gray-300 mb-2" size={36} />
+              <h3 className="font-bold text-gray-800 mb-1">No hay técnicos en esta zona</h3>
+              <p className="text-sm text-gray-400">
+                Intenta con otra ubicación o sin ubicación para ver todos.
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Right Map Pane (Mock) */}
-      <div className="hidden md:flex w-full md:w-1/2 lg:w-3/5 bg-blue-50 relative items-center justify-center">
-        {/* Placeholder for actual Map component */}
-        <div className="absolute inset-0 opacity-20" style={{ 
-          backgroundImage: 'radial-gradient(#1E3A8A 1px, transparent 1px)', 
-          backgroundSize: '20px 20px' 
-        }}></div>
-        
-        <div className="z-10 text-center bg-white p-6 rounded-2xl shadow-lg border border-blue-100 max-w-sm">
-          <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-            <MapPin className="text-brand-blue" size={32} />
-          </div>
-          <h3 className="font-bold text-lg text-gray-900 mb-2">Mapa de Confianza</h3>
-          <p className="text-gray-600 text-sm">
-            {technicians.length > 0 
-              ? `Se muestran ${technicians.length} técnicos en tu zona listos para ayudarte.`
-              : 'No hay técnicos en tu zona en este momento.'}
-          </p>
-        </div>
+      {/* ── Right map pane ── */}
+      <div className="hidden md:block w-full md:w-3/5">
+        <MapContainer
+          center={VENEZUELA_CENTER}
+          zoom={VENEZUELA_ZOOM}
+          style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom={true}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
 
-        {/* Dynamic Map Pins based on technicians count */}
-        {technicians.map((tech, index) => {
-          // Generate somewhat scattered positions for the mock map based on index
-          const positions = [
-            { top: '25%', left: '25%' },
-            { top: '33%', right: '33%' },
-            { bottom: '25%', right: '25%' },
-            { top: '15%', left: '50%' },
-            { bottom: '15%', left: '20%' },
-          ];
-          const pos = positions[index % positions.length];
-          return (
-            <div 
-              key={tech.id} 
-              className={`absolute text-brand-blue ${index === 0 ? 'animate-bounce' : ''} cursor-pointer hover:text-brand-blueDark hover:scale-110 transition-transform`} 
-              style={pos}
-              title={tech.name}
-              onClick={() => setSelectedTech(tech)}
+          {/* Fly to searched location */}
+          <MapFlyTo center={mapCenter} zoom={mapZoom} />
+
+          {/* User location pin */}
+          {userLocation && (
+            <Marker
+              position={[userLocation.lat, userLocation.lng]}
+              icon={userPinIcon}
             >
-              <MapPin size={32} fill="currentColor" />
-            </div>
-          );
-        })}
+              <Popup>
+                <div className="text-sm">
+                  <span className="font-semibold">📍 Tu ubicación</span>
+                  <br />
+                  <span className="text-gray-500 text-xs">{locationQuery}</span>
+                </div>
+              </Popup>
+            </Marker>
+          )}
+
+          {/* Technician pins */}
+          {visibleTechs.map((tech) =>
+            tech.lat && tech.lng ? (
+              <Marker
+                key={tech.id}
+                position={[tech.lat, tech.lng]}
+                icon={createTechIcon(selectedTech?.id === tech.id)}
+                eventHandlers={{ click: () => setSelectedTech(tech) }}
+              >
+                <Popup>
+                  <div className="text-sm min-w-[150px]">
+                    <div className="font-bold text-gray-900 mb-0.5">{tech.name}</div>
+                    <div className="text-gray-500 text-xs">{tech.city || 'Técnico verificado'}</div>
+                    {tech.distance && (
+                      <div className="text-blue-600 font-semibold text-xs mt-1">
+                        {tech.distance}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setSelectedTech(tech)}
+                      className="mt-2 w-full bg-blue-600 text-white text-xs py-1.5 px-2 rounded-lg hover:bg-blue-700 transition"
+                    >
+                      Presupuesto Flash ⚡
+                    </button>
+                  </div>
+                </Popup>
+              </Marker>
+            ) : null
+          )}
+        </MapContainer>
       </div>
 
+      {/* Flash budget modal */}
       {selectedTech && (
-        <FlashBudgetModal 
-          tech={selectedTech} 
-          onClose={() => setSelectedTech(null)} 
-        />
+        <FlashBudgetModal tech={selectedTech} onClose={() => setSelectedTech(null)} />
       )}
     </div>
   );

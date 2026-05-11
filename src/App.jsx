@@ -7,6 +7,7 @@ import TechnicianProfile from './pages/TechnicianProfile';
 import ClientDashboard from './pages/ClientDashboard';
 import TechnicianDashboard from './pages/TechnicianDashboard';
 import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
             <Route path="/dashboard/client" element={<ClientDashboard />} />
             <Route path="/dashboard/technician" element={<TechnicianDashboard />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
           </Routes>
         </main>
         <Footer />
