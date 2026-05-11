@@ -1,42 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Map, SlidersHorizontal, MapPin } from 'lucide-react';
 import TechnicianCard from '../components/search/TechnicianCard';
 import FlashBudgetModal from '../components/search/FlashBudgetModal';
-
-// Mock Data
-const MOCK_TECHNICIANS = [
-  {
-    id: 1,
-    name: 'Carlos Rodríguez',
-    avatar: 'https://i.pravatar.cc/150?u=carlos',
-    verified: true,
-    rating: 4.9,
-    reviews: 124,
-    distance: 'A 1.2 km',
-    description: 'Especialista en línea blanca. 10 años de experiencia reparando lavadoras y neveras de todas las marcas.',
-  },
-  {
-    id: 2,
-    name: 'Roberto Gómez',
-    avatar: 'https://i.pravatar.cc/150?u=roberto',
-    verified: true,
-    rating: 4.7,
-    reviews: 89,
-    distance: 'A 2.5 km',
-    description: 'Técnico certificado en refrigeración residencial y comercial. Respuesta inmediata para emergencias.',
-  },
-  {
-    id: 3,
-    name: 'Luis Méndez',
-    avatar: 'https://i.pravatar.cc/150?u=luis',
-    verified: false,
-    rating: 4.5,
-    reviews: 32,
-    distance: 'A 3.8 km',
-    description: 'Reparación de electrodomésticos menores y mantenimiento preventivo.',
-  }
-];
 
 const SearchResults = () => {
   const location = useLocation();
@@ -44,6 +10,26 @@ const SearchResults = () => {
   const serviceQuery = searchParams.get('service') || 'Reparaciones';
   
   const [selectedTech, setSelectedTech] = useState(null);
+  const [technicians, setTechnicians] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTechnicians = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/technicians');
+        const data = await res.json();
+        if (res.ok) {
+          setTechnicians(data);
+        }
+      } catch (err) {
+        console.error("Error al obtener técnicos:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTechnicians();
+  }, []);
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)]">
@@ -51,7 +37,7 @@ const SearchResults = () => {
       <div className="w-full md:w-1/2 lg:w-2/5 flex flex-col bg-white border-r border-gray-200 z-10 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-xl font-bold text-gray-900">Resultados para "{serviceQuery}"</h1>
-          <p className="text-sm text-gray-500 mt-1">{MOCK_TECHNICIANS.length} técnicos disponibles cerca de ti</p>
+          <p className="text-sm text-gray-500 mt-1">{technicians.length} técnicos disponibles cerca de ti</p>
           
           <div className="flex gap-2 mt-4">
             <button className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">
@@ -64,13 +50,22 @@ const SearchResults = () => {
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-          {MOCK_TECHNICIANS.map(tech => (
-            <TechnicianCard 
-              key={tech.id} 
-              tech={tech} 
-              onQuoteClick={(t) => setSelectedTech(t)} 
-            />
-          ))}
+          {loading ? (
+            <div className="text-center py-10 text-gray-500">Cargando técnicos...</div>
+          ) : technicians.length > 0 ? (
+            technicians.map(tech => (
+              <TechnicianCard 
+                key={tech.id} 
+                tech={tech} 
+                onQuoteClick={(t) => setSelectedTech(t)} 
+              />
+            ))
+          ) : (
+            <div className="text-center py-10 bg-white border border-gray-200 rounded-xl shadow-sm">
+              <h3 className="font-bold text-gray-900 mb-1">No hay técnicos disponibles</h3>
+              <p className="text-sm text-gray-500">Aún no se han registrado técnicos en la plataforma.</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -88,14 +83,35 @@ const SearchResults = () => {
           </div>
           <h3 className="font-bold text-lg text-gray-900 mb-2">Mapa de Confianza</h3>
           <p className="text-gray-600 text-sm">
-            Los técnicos mostrados están validados y se encuentran en tu misma zona para asegurar un servicio rápido y económico.
+            {technicians.length > 0 
+              ? `Se muestran ${technicians.length} técnicos en tu zona listos para ayudarte.`
+              : 'No hay técnicos en tu zona en este momento.'}
           </p>
         </div>
 
-        {/* Mock Map Pins */}
-        <div className="absolute top-1/4 left-1/4 text-brand-blue animate-bounce"><MapPin size={32} fill="currentColor" /></div>
-        <div className="absolute top-1/3 right-1/3 text-brand-blue"><MapPin size={32} fill="currentColor" /></div>
-        <div className="absolute bottom-1/4 right-1/4 text-brand-blue"><MapPin size={32} fill="currentColor" /></div>
+        {/* Dynamic Map Pins based on technicians count */}
+        {technicians.map((tech, index) => {
+          // Generate somewhat scattered positions for the mock map based on index
+          const positions = [
+            { top: '25%', left: '25%' },
+            { top: '33%', right: '33%' },
+            { bottom: '25%', right: '25%' },
+            { top: '15%', left: '50%' },
+            { bottom: '15%', left: '20%' },
+          ];
+          const pos = positions[index % positions.length];
+          return (
+            <div 
+              key={tech.id} 
+              className={`absolute text-brand-blue ${index === 0 ? 'animate-bounce' : ''} cursor-pointer hover:text-brand-blueDark hover:scale-110 transition-transform`} 
+              style={pos}
+              title={tech.name}
+              onClick={() => setSelectedTech(tech)}
+            >
+              <MapPin size={32} fill="currentColor" />
+            </div>
+          );
+        })}
       </div>
 
       {selectedTech && (

@@ -1,24 +1,25 @@
 import { Star, MapPin, BadgeCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const TechnicianCard = ({ tech, onQuoteClick }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-shadow">
       <div className="flex-shrink-0">
-        <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden relative">
-          <img src={tech.avatar} alt={tech.name} className="w-full h-full object-cover" />
+        <Link to={`/technician/${tech.id}`} className="block w-16 h-16 rounded-full bg-gray-200 overflow-hidden relative group">
+          <img src={tech.avatar} alt={tech.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
           {tech.verified && (
             <div className="absolute bottom-0 right-0 bg-white rounded-full">
               <BadgeCheck className="text-blue-500" size={20} fill="white" />
             </div>
           )}
-        </div>
+        </Link>
       </div>
       <div className="flex-grow">
         <div className="flex justify-between items-start">
           <div>
-            <h3 className="font-bold text-lg text-gray-900 flex items-center gap-1">
+            <Link to={`/technician/${tech.id}`} className="font-bold text-lg text-gray-900 flex items-center gap-1 hover:text-brand-blue transition-colors">
               {tech.name}
-            </h3>
+            </Link>
             <div className="flex items-center text-sm text-gray-500 mt-1">
               <Star className="text-yellow-400 mr-1" size={14} fill="currentColor" />
               <span className="font-medium text-gray-700">{tech.rating}</span>
