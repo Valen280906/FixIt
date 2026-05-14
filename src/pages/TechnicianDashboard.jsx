@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import {
   Home, Zap, Briefcase, User, LogOut, Timer,
   MapPin, CheckCircle, BarChart2, Save, CheckCircle2,
-  Mail, TrendingUp, Star
+  Mail, TrendingUp, Star, X
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -74,6 +74,9 @@ const InicioTab = ({ user, setTab, token }) => {
 const RadarTab = ({ token }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [respondingTo, setRespondingTo] = useState(null); // id del request
+  const [techMessage, setTechMessage] = useState('');
+  const [proposedPrice, setProposedPrice] = useState('');
 
   const fetchRequests = () => {
     fetch('http://localhost:5000/api/jobs', { headers: { Authorization: `Bearer ${token}` } })
@@ -89,20 +92,27 @@ const RadarTab = ({ token }) => {
     return () => clearInterval(interval);
   }, [token]);
 
-  const acceptRequest = async (id) => {
+  const sendBudget = async (id) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/jobs/${id}/status`, {
+      const res = await fetch(`http://localhost:5000/api/jobs/${id}/budget`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: 'assigned' })
+        body: JSON.stringify({ 
+          proposed_price: parseFloat(proposedPrice),
+          tech_message: techMessage
+        })
       });
-      if (!res.ok) throw new Error('Error al aceptar la solicitud');
+      if (!res.ok) throw new Error('Error al enviar el presupuesto');
       
-      setRequests(prev => prev.filter(r => r.id !== id));
+      setRespondingTo(null);
+      setTechMessage('');
+      setProposedPrice('');
+      fetchRequests();
+
       // Show toast
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-4 right-4 bg-green-600 text-white px-6 py-3 rounded-xl shadow-2xl font-bold flex items-center gap-2 z-[9999] transform translate-y-0 opacity-100 transition-all';
-      toast.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> ¡Trabajo aceptado! Ahora está en "Mis Trabajos"';
+      toast.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> ¡Presupuesto enviado al cliente!';
       document.body.appendChild(toast);
       setTimeout(() => {
         toast.style.opacity = '0';
@@ -110,20 +120,81 @@ const RadarTab = ({ token }) => {
         setTimeout(() => toast.remove(), 300);
       }, 4000);
     } catch (e) {
-      alert('Error aceptando el trabajo.');
+      alert('Error enviando el presupuesto.');
     }
   };
 
-  const active = requests.filter(r => r.status === 'active');
+  // Filtrar activos (y que no tengan precio propuesto nuestro todavía, o si la logica es que se le asigna a 'esperando_cliente')
+  // Por ahora, solo mostramos los que no tienen precio (el técnico aún no ha respondido)
+  const active = requests.filter(r => r.status === 'active' && r.proposed_price === null);
+
+  const selectedReq = active.find(r => r.id === respondingTo);
 
   return (
     <div className="p-8 w-full max-w-7xl mx-auto">
+      {/* Modal Overlay */}
+      {selectedReq && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h2 className="font-bold text-lg text-gray-800">Evaluación del Servicio</h2>
+              <button onClick={() => setRespondingTo(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="mb-4">
+                <h3 className="font-bold text-gray-900">{selectedReq.service}</h3>
+                <p className="text-sm text-gray-500 mb-2">Cliente: {selectedReq.client_name}</p>
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 relative">
+                  <div className="absolute -top-3 left-4 bg-gray-200 text-xs font-bold text-gray-600 px-2 py-0.5 rounded-full">Problema reportado</div>
+                  <p className="text-sm text-gray-800 italic">"{selectedReq.description}"</p>
+                </div>
+              </div>
+              
+              <div className="space-y-4 mt-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Análisis Detallado</label>
+                  <textarea 
+                    className="w-full border border-gray-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
+                    rows="3"
+                    placeholder="Ej. Según lo que describes, parece que la bomba de agua está obstruida. El servicio incluye la limpieza y revisión..."
+                    value={techMessage}
+                    onChange={(e) => setTechMessage(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Costo Total del Trabajo ($)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-3 text-gray-500 font-medium">$</span>
+                    <input 
+                      type="number"
+                      className="w-full border border-gray-300 rounded-xl p-3 pl-8 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
+                      placeholder="0.00"
+                      value={proposedPrice}
+                      onChange={(e) => setProposedPrice(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="pt-4">
+                  <button onClick={() => sendBudget(selectedReq.id)}
+                    disabled={!techMessage || !proposedPrice}
+                    className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-md hover:shadow-lg disabled:bg-blue-300 flex justify-center items-center gap-2">
+                    Enviar Presupuesto al Cliente
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Zap className="text-yellow-400" fill="currentColor" size={24} /> Radar Flash
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Solicitudes en tiempo real cerca de ti</p>
+          <p className="text-gray-500 text-sm mt-1">Solicitudes esperando tu evaluación</p>
         </div>
         <div className="flex items-center gap-2 bg-green-50 text-green-700 px-4 py-2 rounded-full font-medium border border-green-200 text-sm">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
@@ -136,28 +207,33 @@ const RadarTab = ({ token }) => {
       ) : active.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-200">
           <Timer size={40} className="mx-auto text-gray-300 mb-3" />
-          <p className="font-medium text-gray-600">No hay solicitudes directas pendientes.</p>
-          <p className="text-sm text-gray-400 mt-1">Te notificaremos cuando un cliente te contacte.</p>
+          <p className="font-medium text-gray-600">No hay nuevas solicitudes directas.</p>
+          <p className="text-sm text-gray-400 mt-1">Te notificaremos cuando un cliente envíe un problema.</p>
         </div>
       ) : (
         <div className="space-y-4">
           {active.map(req => {
             return (
               <div key={req.id} className="rounded-2xl border p-6 shadow-sm transition-all hover:shadow-md border-blue-100 bg-white">
-                <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                  <div className="flex-grow">
+                <div className="flex flex-col gap-4">
+                  <div>
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-xs font-bold bg-white border border-gray-200 px-2 py-0.5 rounded text-gray-500">#{req.id}</span>
-                      <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded flex items-center gap-1">Presupuesto: ${req.proposed_price || 0}</span>
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Evaluación Pendiente</span>
                     </div>
                     <h3 className="font-bold text-lg text-gray-900">{req.service}</h3>
-                    <p className="text-sm text-gray-500 mb-1">Cliente: {req.client_name} • {req.client_city || 'Sin ubicación'}</p>
-                    <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded border border-gray-100">{req.description}</p>
+                    <p className="text-sm text-gray-500 mb-3">Cliente: {req.client_name} • {req.client_city || 'Sin ubicación'}</p>
+                    
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 relative">
+                      <div className="absolute -top-3 left-4 bg-gray-200 text-xs font-bold text-gray-600 px-2 py-0.5 rounded-full">Descripción del Problema</div>
+                      <p className="text-sm text-gray-800 italic">"{req.description}"</p>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-end gap-3 min-w-[140px]">
-                    <button onClick={() => acceptRequest(req.id)}
-                      className="w-full py-2.5 rounded-xl font-bold text-sm text-white transition-colors shadow-lg bg-blue-600 hover:bg-blue-700 shadow-blue-500/25 px-6">
-                      Aceptar Oferta
+
+                  <div className="flex justify-end mt-2">
+                    <button onClick={() => setRespondingTo(req.id)}
+                      className="py-2.5 rounded-xl font-bold text-sm text-white transition-colors shadow-lg bg-blue-600 hover:bg-blue-700 shadow-blue-500/25 px-8">
+                      Evaluar y Enviar Presupuesto
                     </button>
                   </div>
                 </div>
@@ -468,8 +544,12 @@ const TechnicianDashboard = () => {
       <aside className="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 shadow-sm">
         <div className="p-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-              {user?.name?.[0]?.toUpperCase() || '?'}
+            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 overflow-hidden">
+              {user?.avatar ? (
+                <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                user?.name?.[0]?.toUpperCase() || '?'
+              )}
             </div>
             <div className="min-w-0">
               <div className="font-bold text-gray-900 text-sm truncate">{user?.name}</div>

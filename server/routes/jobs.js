@@ -63,13 +63,30 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// Actualizar estado de solicitud (Técnico acepta/rechaza, o Cliente cancela)
+// Actualizar estado de solicitud (Cliente acepta/rechaza, o finaliza)
 router.put('/:id/status', authenticate, async (req, res) => {
   const { status } = req.body; // 'assigned', 'completed', 'rejected', 'cancelled'
   try {
     const updated = await pool.query(
       'UPDATE requests SET status = $1 WHERE id = $2 RETURNING *',
       [status, req.params.id]
+    );
+    res.json(updated.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Técnico envía presupuesto (actualiza precio, mensaje y estado)
+router.put('/:id/budget', authenticate, async (req, res) => {
+  if (req.user.role !== 'technician') return res.status(403).json({ error: 'Only technicians can send budgets' });
+  const { proposed_price, tech_message } = req.body;
+  try {
+    // Al enviar el presupuesto, el estado sigue siendo active pero ya tiene el precio y mensaje
+    // Para simplificar, le asignamos el técnico de una vez si no lo estaba
+    const updated = await pool.query(
+      'UPDATE requests SET proposed_price = $1, tech_message = $2, target_technician_id = $3 WHERE id = $4 RETURNING *',
+      [proposed_price, tech_message, req.user.id, req.params.id]
     );
     res.json(updated.rows[0]);
   } catch (err) {

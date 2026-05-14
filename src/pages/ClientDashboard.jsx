@@ -272,13 +272,33 @@ const TrabajosTab = ({ token }) => {
   const [JOBS, setJOBS] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchJobs = () => {
     fetch('http://localhost:5000/api/jobs', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => setJOBS(Array.isArray(d) ? d : []))
       .catch(() => setJOBS([]))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchJobs();
   }, [token]);
+
+  const updateStatus = async (id, status) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/jobs/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        fetchJobs();
+      }
+    } catch (e) {
+      alert('Error actualizando el estado del trabajo');
+    }
+  };
+
   const badge = { active: 'bg-blue-50 text-blue-700', in_progress: 'bg-yellow-50 text-yellow-700', completed: 'bg-green-50 text-green-700' };
 
   return (
@@ -314,47 +334,83 @@ const TrabajosTab = ({ token }) => {
             <p className="text-sm text-gray-400 mt-1">Cuando solicites un servicio, aparecerá aquí.</p>
           </div>
         ) : (
-          JOBS.map(job => (
-            <div key={job.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <span className="text-xs bg-gray-100 text-gray-500 font-bold px-2 py-1 rounded mb-2 inline-block">#{job.id}</span>
-                  <h3 className="font-bold text-lg text-gray-900">{job.service} - ${job.proposed_price || 0}</h3>
-                  <p className="text-sm text-gray-500">Técnico: {job.tech_name || 'Sin asignar'} • {new Date(job.created_at).toLocaleDateString()}</p>
+          JOBS.map(job => {
+            const hasBudget = job.proposed_price !== null && job.status === 'active';
+            
+            return (
+              <div key={job.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+                {hasBudget && (
+                  <div className="absolute top-0 left-0 w-1 h-full bg-yellow-400"></div>
+                )}
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <span className="text-xs bg-gray-100 text-gray-500 font-bold px-2 py-1 rounded mb-2 inline-block">#{job.id}</span>
+                    <h3 className="font-bold text-lg text-gray-900">
+                      {job.service} {job.proposed_price !== null && <span className="text-blue-600">- ${job.proposed_price}</span>}
+                    </h3>
+                    <p className="text-sm text-gray-500">Técnico: {job.tech_name || 'Sin asignar'} • {new Date(job.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${
+                    job.status === 'completed' ? 'bg-green-50 text-green-700' : 
+                    job.status === 'assigned' ? 'bg-blue-50 text-blue-700' : 
+                    hasBudget ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {job.status === 'completed' ? 'Finalizado' : 
+                     job.status === 'assigned' ? 'Asignado' : 
+                     hasBudget ? 'Esperando tu aprobación' :
+                     'Evaluación Pendiente'}
+                  </span>
                 </div>
-                <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${
-                  job.status === 'completed' ? 'bg-green-50 text-green-700' : 
-                  job.status === 'assigned' ? 'bg-blue-50 text-blue-700' : 
-                  'bg-yellow-50 text-yellow-700'
-                }`}>
-                  {job.status === 'completed' ? 'Finalizado' : 
-                   job.status === 'assigned' ? 'Asignado' : 'Buscando Técnico'}
-                </span>
-              </div>
-              <div className="flex items-center gap-0 relative">
-                <div className="absolute left-0 top-3 w-full h-1 bg-gray-200 rounded-full"></div>
-                <div className={`absolute left-0 top-3 h-1 bg-blue-500 rounded-full transition-all duration-500 ${
-                  job.status === 'completed' ? 'w-full' : 
-                  job.status === 'assigned' ? 'w-1/2' : 'w-0'
-                }`}></div>
-                {['Solicitado', 'Asignado', 'Finalizado'].map((step, i) => {
-                  let isCompleted = false;
-                  if (i === 0) isCompleted = true; // Always requested
-                  if (i === 1 && (job.status === 'assigned' || job.status === 'completed')) isCompleted = true;
-                  if (i === 2 && job.status === 'completed') isCompleted = true;
 
-                  return (
-                    <div key={step} className="flex-1 flex flex-col items-center relative z-10">
-                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-500 ${isCompleted ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/30' : 'bg-white border-gray-300 text-gray-400'}`}>
-                        {isCompleted ? '✓' : i + 1}
-                      </div>
-                      <span className={`text-xs mt-1.5 font-bold transition-colors ${isCompleted ? 'text-blue-700' : 'text-gray-400'}`}>{step}</span>
+                <div className="mb-4 text-sm text-gray-600">
+                  <p><strong>Tu problema:</strong> {job.description}</p>
+                </div>
+
+                {hasBudget && (
+                  <div className="mb-5 bg-blue-50/50 border border-blue-100 rounded-xl p-4">
+                    <h4 className="font-bold text-gray-800 flex items-center gap-2 mb-2 text-sm">
+                      <Star size={16} className="text-yellow-500"/> Diagnóstico del Técnico
+                    </h4>
+                    <p className="text-sm text-gray-700 italic mb-4">"{job.tech_message}"</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => updateStatus(job.id, 'assigned')}
+                        className="flex-1 bg-blue-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20">
+                        Aceptar Presupuesto (${job.proposed_price})
+                      </button>
+                      <button onClick={() => updateStatus(job.id, 'cancelled')}
+                        className="px-4 py-2 bg-gray-100 text-gray-600 font-bold rounded-lg text-sm hover:bg-gray-200 transition-colors">
+                        Rechazar
+                      </button>
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-0 relative mt-2 pt-4 border-t border-gray-50">
+                  <div className="absolute left-0 top-7 w-full h-1 bg-gray-200 rounded-full"></div>
+                  <div className={`absolute left-0 top-7 h-1 bg-blue-500 rounded-full transition-all duration-500 ${
+                    job.status === 'completed' ? 'w-full' : 
+                    job.status === 'assigned' ? 'w-1/2' : 'w-0'
+                  }`}></div>
+                  {['Solicitado', 'Asignado', 'Finalizado'].map((step, i) => {
+                    let isCompleted = false;
+                    if (i === 0) isCompleted = true; // Always requested
+                    if (i === 1 && (job.status === 'assigned' || job.status === 'completed')) isCompleted = true;
+                    if (i === 2 && job.status === 'completed') isCompleted = true;
+
+                    return (
+                      <div key={step} className="flex-1 flex flex-col items-center relative z-10">
+                        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-500 ${isCompleted ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/30' : 'bg-white border-gray-300 text-gray-400'}`}>
+                          {isCompleted ? '✓' : i + 1}
+                        </div>
+                        <span className={`text-xs mt-1.5 font-bold transition-colors ${isCompleted ? 'text-blue-700' : 'text-gray-400'}`}>{step}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -560,8 +616,12 @@ const ClientDashboard = () => {
       <aside className="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 shadow-sm">
         <div className="p-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-              {user?.name?.[0]?.toUpperCase() || '?'}
+            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 overflow-hidden">
+              {user?.avatar ? (
+                <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                user?.name?.[0]?.toUpperCase() || '?'
+              )}
             </div>
             <div className="min-w-0">
               <div className="font-bold text-gray-900 text-sm truncate">{user?.name}</div>
